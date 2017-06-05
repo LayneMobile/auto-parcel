@@ -50,6 +50,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -168,9 +169,9 @@ public final class AutoParcelProcessor extends AbstractProcessor {
         Collection<? extends Element> generatedElements =
                 env.getElementsAnnotatedWith(Generated.class);
 
-        for (TypeElement type : types) {
-            
-        }
+        types = types.stream()
+                .map(typeElement -> processingEnv.getElementUtils().getTypeElement(typeElement.getQualifiedName()))
+                .collect(Collectors.toSet());
 
         types.addAll(ImmutableList.<TypeElement>builder()
                 .addAll(ElementFilter.typesIn(autoParcelElements))
@@ -184,7 +185,6 @@ public final class AutoParcelProcessor extends AbstractProcessor {
         Iterator<TypeElement> it = types.iterator();
         while (it.hasNext()) {
             TypeElement type = it.next();
-            processingEnv.getMessager().printMessage(NOTE, "checking", type);
             String name = type.getSimpleName().toString();
             AutoParcel autoParcel = type.getAnnotation(AutoParcel.class);
             if (autoParcel == null) {
@@ -201,6 +201,7 @@ public final class AutoParcelProcessor extends AbstractProcessor {
                 }
             }
             processType(type);
+            processingEnv.getMessager().printMessage(NOTE, "processed", type);
             it.remove();
         }
 
@@ -209,8 +210,6 @@ public final class AutoParcelProcessor extends AbstractProcessor {
     }
 
     private void processType(TypeElement type) {
-        processingEnv.getMessager().printMessage(NOTE, "processing", type);
-        System.out.println("processing type: " + type);
         AutoParcel autoParcel = type.getAnnotation(AutoParcel.class);
         if (autoParcel == null) {
             mErrorReporter.abortWithError("annotation processor for @AutoParcel was invoked with a" +
@@ -352,7 +351,6 @@ public final class AutoParcelProcessor extends AbstractProcessor {
     private ImmutableList<Property> buildProperties(List<VariableElement> elements) {
         ImmutableList.Builder<Property> builder = ImmutableList.builder();
         for (VariableElement element : elements) {
-            processingEnv.getMessager().printMessage(NOTE, "property element", element);
             builder.add(new Property(element.getSimpleName().toString(), element));
         }
 
@@ -420,8 +418,6 @@ public final class AutoParcelProcessor extends AbstractProcessor {
 
         // Now, iterate all properties, check the version initialize them
         for (Property p : properties) {
-            env.getMessager().printMessage(NOTE, "property: "+ p, p.element);
-
             // get the property version
             int pVersion = p.version();
             if (pVersion > 0) {
