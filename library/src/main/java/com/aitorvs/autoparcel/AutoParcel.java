@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 
 /**
  * An annotation to indicate the auto-parcel that the annotated class needs to be {@link android.os.Parcelable}
- *
+ * <p>
  * <pre>
  * <code>
  * {@literal @}AutoParcel public abstract class Foo  {...}
@@ -17,5 +17,7 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE) // on class level
 @Retention(RetentionPolicy.SOURCE)
 public @interface AutoParcel {
+    String value() default "";
+
     int version() default 0;
 }

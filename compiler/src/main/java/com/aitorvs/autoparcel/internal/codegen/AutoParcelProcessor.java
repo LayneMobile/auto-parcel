@@ -17,6 +17,7 @@ package com.aitorvs.autoparcel.internal.codegen;
  */
 
 import com.aitorvs.autoparcel.AutoParcel;
+import com.aitorvs.autoparcel.Generated;
 import com.aitorvs.autoparcel.ParcelAdapter;
 import com.aitorvs.autoparcel.ParcelVersion;
 import com.aitorvs.autoparcel.internal.common.MoreElements;
@@ -43,6 +44,8 @@ import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +54,6 @@ import java.util.Set;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.RoundEnvironment;
-import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
@@ -70,11 +72,13 @@ import static javax.lang.model.element.Modifier.FINAL;
 import static javax.lang.model.element.Modifier.PRIVATE;
 import static javax.lang.model.element.Modifier.PUBLIC;
 import static javax.lang.model.element.Modifier.STATIC;
+import static javax.tools.Diagnostic.Kind.NOTE;
 
-@SupportedAnnotationTypes("com.aitorvs.autoparcel.AutoParcel")
 public final class AutoParcelProcessor extends AbstractProcessor {
     private ErrorReporter mErrorReporter;
     private Types mTypeUtils;
+    private Set<TypeElement> types = new HashSet<>();
+    private Set<String> processed = new HashSet<>();
 
 
     static final class Property {
@@ -122,6 +126,18 @@ public final class AutoParcelProcessor extends AbstractProcessor {
 
             return builder.build();
         }
+
+        @Override
+        public String toString() {
+            return "Property{" +
+                    "fieldName='" + fieldName + '\'' +
+                    ", element=" + element +
+                    ", typeName=" + typeName +
+                    ", annotations=" + annotations +
+                    ", version=" + version +
+                    ", typeAdapter=" + typeAdapter +
+                    '}';
+        }
     }
 
     @Override
@@ -137,26 +153,69 @@ public final class AutoParcelProcessor extends AbstractProcessor {
     }
 
     @Override
-    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment env) {
-        Collection<? extends Element> annotatedElements =
-                env.getElementsAnnotatedWith(AutoParcel.class);
-        List<TypeElement> types = new ImmutableList.Builder<TypeElement>()
-                .addAll(ElementFilter.typesIn(annotatedElements))
+    public Set<String> getSupportedAnnotationTypes() {
+        return ImmutableSet.<String>builder()
+                .add(AutoParcel.class.getCanonicalName())
+                .add(Generated.class.getCanonicalName())
                 .build();
+    }
+
+    @Override
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment env) {
+        processingEnv.getMessager().printMessage(NOTE, "new round: " + annotations);
+        Collection<? extends Element> autoParcelElements =
+                env.getElementsAnnotatedWith(AutoParcel.class);
+        Collection<? extends Element> generatedElements =
+                env.getElementsAnnotatedWith(Generated.class);
 
         for (TypeElement type : types) {
+            
+        }
+
+        types.addAll(ImmutableList.<TypeElement>builder()
+                .addAll(ElementFilter.typesIn(autoParcelElements))
+                .build());
+        for (TypeElement type : ElementFilter.typesIn(generatedElements)) {
+            processingEnv.getMessager().printMessage(NOTE, "generated", type);
+            processed.add(type.getSimpleName().toString());
+        }
+
+
+        Iterator<TypeElement> it = types.iterator();
+        while (it.hasNext()) {
+            TypeElement type = it.next();
+            processingEnv.getMessager().printMessage(NOTE, "checking", type);
+            String name = type.getSimpleName().toString();
+            AutoParcel autoParcel = type.getAnnotation(AutoParcel.class);
+            if (autoParcel == null) {
+                it.remove();
+                continue;
+            }
+            String nameValue = autoParcel.value();
+            if (!nameValue.isEmpty()) {
+                name = nameValue;
+            }
+            if (!processed.contains("Address")) {
+                if (!"Address".equals(name)) {
+                    continue;
+                }
+            }
             processType(type);
+            it.remove();
         }
 
         // We are the only ones handling AutoParcel annotations
-        return true;
+        return types.isEmpty();
     }
 
     private void processType(TypeElement type) {
+        processingEnv.getMessager().printMessage(NOTE, "processing", type);
+        System.out.println("processing type: " + type);
         AutoParcel autoParcel = type.getAnnotation(AutoParcel.class);
         if (autoParcel == null) {
             mErrorReporter.abortWithError("annotation processor for @AutoParcel was invoked with a" +
                     "type annotated differently; compiler bug? O_o", type);
+            return;
         }
         if (type.getKind() != ElementKind.CLASS) {
             mErrorReporter.abortWithError("@" + AutoParcel.class.getName() + " only applies to classes", type);
@@ -168,9 +227,20 @@ public final class AutoParcelProcessor extends AbstractProcessor {
         checkModifiersIfNested(type);
 
         // get the fully-qualified class name
-        String fqClassName = generatedSubclassName(type, 0);
+        String fqClassName;
+        String name = autoParcel.value();
+        if (name.isEmpty()) {
+            fqClassName = generatedSubclassName(type, 0);
+        } else {
+            String packageName = TypeUtil.packageNameOf(type);
+            if (!packageName.isEmpty()) {
+                packageName += ".";
+            }
+            fqClassName = packageName + name;
+        }
         // class name
         String className = TypeUtil.simpleNameOf(fqClassName);
+        // TODO: need to order dependencies on generated classes
         String source = generateClass(type, className, type.getSimpleName().toString(), false);
         source = Reformatter.fixup(source);
         writeSourceFile(fqClassName, source, type);
@@ -228,10 +298,12 @@ public final class AutoParcelProcessor extends AbstractProcessor {
         String pkg = TypeUtil.packageNameOf(type);
         TypeName classTypeName = ClassName.get(pkg, className);
         TypeSpec.Builder subClass = TypeSpec.classBuilder(className)
+                // Add Generated annotation
+                .addAnnotation(Generated.class)
                 // Add the version
                 .addField(TypeName.INT, "version", PRIVATE)
                 // Class must be always final
-                .addModifiers(FINAL)
+                .addModifiers(FINAL, PUBLIC)
                 // extends from original abstract class
                 .superclass(ClassName.get(pkg, classToExtend))
                 // Add the DEFAULT constructor
@@ -280,6 +352,7 @@ public final class AutoParcelProcessor extends AbstractProcessor {
     private ImmutableList<Property> buildProperties(List<VariableElement> elements) {
         ImmutableList.Builder<Property> builder = ImmutableList.builder();
         for (VariableElement element : elements) {
+            processingEnv.getMessager().printMessage(NOTE, "property element", element);
             builder.add(new Property(element.getSimpleName().toString(), element));
         }
 
@@ -347,6 +420,7 @@ public final class AutoParcelProcessor extends AbstractProcessor {
 
         // Now, iterate all properties, check the version initialize them
         for (Property p : properties) {
+            env.getMessager().printMessage(NOTE, "property: "+ p, p.element);
 
             // get the property version
             int pVersion = p.version();

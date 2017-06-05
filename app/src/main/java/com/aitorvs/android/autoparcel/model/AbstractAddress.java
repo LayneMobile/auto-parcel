@@ -21,8 +21,8 @@ import android.support.annotation.NonNull;
 
 import com.aitorvs.autoparcel.AutoParcel;
 
-@AutoParcel
-public abstract class Address implements Parcelable {
+@AutoParcel("Address")
+public abstract class AbstractAddress implements Parcelable {
     @NonNull
     public String street;
 
@@ -33,6 +33,6 @@ public abstract class Address implements Parcelable {
     public String country;
 
     public static Address create(@NonNull String street, String postCode, String city, String country) {
-        return new AutoParcel_Address(street, postCode, city, country);
+        return new Address(street, postCode, city, country);
     }
 }

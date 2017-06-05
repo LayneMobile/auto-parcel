@@ -43,7 +43,7 @@ public abstract class Person implements Parcelable {
     // this is another parcelable object
     public Address address;
 
-    public static Person create(@NonNull String name, @NonNull Date birthday, int age, Address address) {
+    public static Person create(@NonNull String name, @NonNull Date birthday, int age, AbstractAddress address) {
         return new AutoParcel_Person(name, "Doe", birthday, age, address);
     }
 }
